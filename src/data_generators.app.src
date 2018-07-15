@@ -1,0 +1,9 @@
+{ application, data_generators
+, [ {description, "Data generators"}
+  , {vsn, git}
+  , {applications, [kernel, stdlib, compiler]}
+  , {modules, []}
+  , {registered, []}
+  ]
+}.
+

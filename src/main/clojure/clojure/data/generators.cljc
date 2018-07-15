@@ -10,12 +10,12 @@
 (ns ^{:author "Stuart Halloway"
       :doc "Data generators for Clojure."}
   clojure.data.generators
-  (:refer-clojure :exclude [byte char long int short float double boolean string symbol keyword list vec set hash-map name rand-nth byte-array boolean-array short-array char-array int-array long-array float-array double-array shuffle bigint bigdec])
+  (:refer-clojure :exclude [byte char int float double boolean string symbol keyword list vec tuple set hash-map name rand-nth shuffle])
   (:require [clojure.core :as core]))
 
-(set! *warn-on-reflection* true)
+(set! *warn-on-infer* true)
 
-(def ^:dynamic ^java.util.Random
+#_(def ^:dynamic ^java.util.Random
      *rnd*
      "Random instance for use in generators. By consistently using this
 instance you can get a repeatable basis for tests."
@@ -24,7 +24,7 @@ instance you can get a repeatable basis for tests."
 (defn- call-through
   "Recursively call x until it doesn't return a function."
   [x]
-  (if (fn? x)
+  (if (or (fn? x) (var? x))
     (recur (x))
     x))
 
@@ -32,32 +32,35 @@ instance you can get a repeatable basis for tests."
   "Returns sizer repetitions of f (or (f) if f is a fn)."
   [sizer f]
   (let [count (call-through sizer)]
-    (if (fn? f)
+    (if (or (fn? f) (var? f))
       (repeatedly count f)
       (repeat count f))))
 
 (defn geometric
   "Geometric distribution with mean 1/p."
-  ^long [p]
-  (core/long (Math/ceil (/ (Math/log (.nextDouble *rnd*))
-                           (Math/log (- 1.0 p))))))
+  [p]
+  (clj_utils/ceil (/ (math/log (rand/uniform))
+                     (math/log (- 1.0 p)))))
+
+(def ^:private MAX_INTEGER (dec (apply * (repeat 63 2))))
+(def ^:private MIN_INTEGER (- MAX_INTEGER))
 
 (defn uniform
   "Uniform distribution from lo (inclusive) to hi (exclusive).
-   Defaults to range of Java long."
-  (^long [] (.nextLong *rnd*))
-  (^long[lo hi] {:pre [(< lo hi)]}
-         (clojure.core/long (Math/floor (+ lo (* (.nextDouble *rnd*) (- hi lo)))))))
+   Defaults to range of 64 signed integer."
+  ([] (uniform MIN_INTEGER MAX_INTEGER))
+  ([lo hi] {:pre [(< lo hi)]}
+   (clj_utils/floor (+ lo (* (rand/uniform) (- hi lo))))))
 
 (defn float
   "Generate a float between 0 and 1 based on *rnd*"
-  ^double []
-  (.nextFloat *rnd*))
+  []
+  (rand/uniform))
 
 (defn double
   "Generate a double between 0 and 1 based on *rnd*."
-  ^double []
-  (.nextDouble *rnd*))
+  []
+  (rand/uniform))
 
 (defn rand-nth
   "Replacement of core/rand-nth that allows control of the
@@ -89,35 +92,14 @@ instance you can get a repeatable basis for tests."
   ([& specs]
      (weighted (zipmap specs (repeat 1)))))
 
-(def long
-  "Returns a long based on *rnd*. Same as uniform."
+(def int
+  "Returns an int based on *rnd*. Same as uniform."
   uniform)
-
-(defn ratio
-  "Generate a ratio, with numerator and denominator uniform longs
-   or as specified"
-  ([] (ratio long long))
-  ([num-gen denom-gen] (/ (num-gen) (denom-gen))))
-
-(defn int
-  "Returns a int based on *rnd* in the int range."
-  []
-  (uniform Integer/MIN_VALUE (inc Integer/MAX_VALUE)))
-
-(defn short
-  "Returns a short based on *rnd* in the short range."
-  []
-  (uniform Short/MIN_VALUE (inc (core/long Short/MAX_VALUE))))
-
-(defn byte
-  "Returns a long based on *rnd* in the byte range."
-  ^long []
-  (uniform Byte/MIN_VALUE (inc (core/int Byte/MAX_VALUE))))
 
 (defn boolean
   "Returns a bool based on *rnd*."
   []
-  (.nextBoolean *rnd*))
+  (< 0.5 (rand/uniform)))
 
 (defn printable-ascii-char
   "Returns a char based on *rnd* in the printable ascii range."
@@ -140,49 +122,6 @@ instance you can get a repeatable basis for tests."
   ([f] (list f default-sizer))
   ([f sizer]
      (reps sizer f)))
-
-(defmacro primitive-array
-  [type]
-  (let [fn-name (core/symbol (str type "-array"))
-        factory-name (core/symbol (str "core/" fn-name))
-        cast-name (core/symbol (str "core/" type))]
-    `(defn ~fn-name
-       "Create an array with elements from f and sized from sizer."
-       ([~'f]
-          (~fn-name ~'f default-sizer))
-       ([~'f ~'sizer]
-          (let [~'arr (~factory-name (call-through ~'sizer))]
-            (dotimes [~'i (count ~'arr)]
-              (aset ~'arr ~'i (~cast-name (call-through ~'f))))
-            ~'arr)))))
-
-(defmacro primitive-arrays
-  [types]
-  `(do ~@(map (fn [type] `(primitive-array ~type)) types)))
-
-(primitive-arrays ["byte" "short" "long" "char" "double" "float" "int" "boolean"])
-
-#_(defn byte-array
-      ([f]
-         (byte-array f default-sizer))
-      ([f sizer]
-         (let [arr (core/byte-array (call-through default-sizer))]
-           (dotimes [i (count arr)]
-             (aset arr i (core/byte (call-through f))))
-           arr)))
-
-;; TODO: sensible default distributions for bigint, bigdec
-(defn bigint
-  ^clojure.lang.BigInt []
-  (loop []
-    (let [i (try
-             (BigInteger. ^bytes (byte-array byte))
-             (catch NumberFormatException e :retry))]
-      (if (= i :retry) (recur) (core/bigint i)))))
-
-(defn bigdec
-  []
-  (BigDecimal. (.toBigInteger (bigint)) (geometric 0.01)))
 
 (defn vec
   "Create a vec with elements from f and sized from sizer."
@@ -212,8 +151,9 @@ instance you can get a repeatable basis for tests."
   ([f sizer] (apply str (reps sizer f))))
 
 (def ^:private ascii-alpha
-  (concat (range 65 (+ 65 26))
-          (range 97 (+ 97 26))))
+  (-> []
+      (into (map core/char (range 65 (+ 65 26))))
+      (into (map core/char (range 97 (+ 97 26))))))
 
 (def ^:private symbol-start
   (-> (concat ascii-alpha [\* \+ \! \- \_ \?])
@@ -224,20 +164,21 @@ instance you can get a repeatable basis for tests."
 
 ;; cannot generate every legal prefix, but at least avoids
 ;; the illegal "-1"
+
 (defn- name-prefix
   []
-  (str (rand-nth [(core/char (rand-nth symbol-start)) ""])
-       (core/char (rand-nth ascii-alpha))))
+  (str (rand-nth [(rand-nth symbol-start) ""])
+       (rand-nth ascii-alpha)))
 
 (defn- name-body
   [sizer]
-  (string #(core/char (rand-nth symbol-char)) sizer))
+  (string #(rand-nth symbol-char) sizer))
 
 (defn- name
   ([] (name default-sizer))
   ([sizer]
-     (str (name-prefix)
-          (name-body sizer))))
+   (str (name-prefix)
+        (name-body sizer))))
 
 (defn symbol
   "Create a non-namespaced symbol sized from sizer."
@@ -246,35 +187,33 @@ instance you can get a repeatable basis for tests."
 
 (defn keyword
   "Create a non-namespaced keyword sized from sizer."
-  ([] (keyword default-sizer))
+  ([] (keyword #(uniform 10 20)))
   ([sizer] (core/keyword (name sizer))))
 
 (defn uuid
   "Create a UUID based on uniform distribution of low and high parts."
   []
-  (java.util.UUID. (long) (long)))
+  (erlang.util.UUID/random (int) (int) (int)))
 
-(defn date
+#_(defn date
   "Create a date with geometric mean around base which defaults to
    #inst \"2007-10-16T00:00:00.000-00:00\""
   ([] (date #inst "2007-10-16T00:00:00.000-00:00"))
-  ([^java.util.Date base]
-     (java.util.Date. (geometric (/ 1 (.getTime base))))))
+  ([^erlang.util.Date base]
+   (erlang.util.Date. (geometric (/ 1 base)))))
+
+(defn constantly-nil [] nil)
 
 (def scalars
-  [(constantly nil)
-   byte
-   long
+  [constantly-nil
+   int
    boolean
    printable-ascii-char
    string
    symbol
    keyword
    uuid
-   date
-   ratio
-   bigint
-   bigdec])
+   #_date])
 
 (defn scalar
   "Returns a scalar based on *rnd*."
@@ -300,15 +239,16 @@ instance you can get a repeatable basis for tests."
 (defn ^:private fisher-yates
   "http://en.wikipedia.org/wiki/Fisher–Yates_shuffle#The_modern_algorithm"
   [coll]
-  (let [as (object-array coll)]
-    (loop [i (dec (count as))]
-      (if (<= 1 i)
-        (let [j (uniform 0 (inc i))
-              t (aget as i)]
-          (aset as i (aget as j))
-          (aset as j t)
-          (recur (dec i)))
-        (into (empty coll) (seq as))))))
+  (loop [as (apply core/tuple coll)
+         i (count as)]
+    (if (<= 1 i)
+      (let [j (uniform 1 (inc i))
+            t (erlang/element i as)
+            x (erlang/element j as)
+            as (erlang/setelement i as x)
+            as (erlang/setelement j as t)]
+        (recur as (dec i)))
+      (into (empty coll) (seq as)))))
 
 (defn shuffle
   "Shuffle coll based on *rnd*"
@@ -320,18 +260,23 @@ instance you can get a repeatable basis for tests."
 (defn reservoir-sample
   "Reservoir sample ct items from coll, using *rnd*."
   [ct coll]
-  (loop [result (transient (core/vec (take ct coll)))
+  (loop [result (core/vec (take ct coll))
          n ct
          coll (drop ct coll)]
     (if (seq coll)
       (let [pos (uniform 0 n)]
         (recur (if (< pos ct)
-                 (assoc! result pos (first coll))
+                 (assoc result pos (first coll))
                  result)
                (inc n)
                (rest coll)))
-      (persistent! result))))
+      result)))
 
-
-
-
+(defmacro with-seed
+  [seed & body]
+  `(let [seed# ~seed
+         x1# (core/int (/ seed# 1000000000000))
+         x2# (core/int (- (/ seed# 1000000) (* x1# 1000000)))
+         x3# (core/int (rem seed# 1000000))
+         _# (rand/seed :exs1024s (core/tuple x1# x2# x3#))]
+     ~@body))
