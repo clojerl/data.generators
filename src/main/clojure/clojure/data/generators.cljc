@@ -90,6 +90,11 @@
   "Returns an int based on *rnd*. Same as uniform."
   uniform)
 
+(defn byte
+  "Returns a long based on *rnd* in the byte range."
+  []
+  (uniform 0 256))
+
 (defn boolean
   "Returns a bool based on *rnd*."
   []
@@ -200,6 +205,7 @@
 
 (def scalars
   [constantly-nil
+   byte
    int
    boolean
    printable-ascii-char
