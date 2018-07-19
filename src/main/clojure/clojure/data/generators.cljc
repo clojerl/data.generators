@@ -15,12 +15,6 @@
 
 (set! *warn-on-infer* true)
 
-#_(def ^:dynamic ^java.util.Random
-     *rnd*
-     "Random instance for use in generators. By consistently using this
-instance you can get a repeatable basis for tests."
-     (java.util.Random. 42))
-
 (defn- call-through
   "Recursively call x until it doesn't return a function."
   [x]
@@ -195,12 +189,12 @@ instance you can get a repeatable basis for tests."
   []
   (erlang.util.UUID/random (int) (int) (int)))
 
-#_(defn date
+(defn date
   "Create a date with geometric mean around base which defaults to
    #inst \"2007-10-16T00:00:00.000-00:00\""
   ([] (date #inst "2007-10-16T00:00:00.000-00:00"))
   ([^erlang.util.Date base]
-   (erlang.util.Date. (geometric (/ 1 base)))))
+   (erlang.util.Date. (geometric (/ 1 (.timestamp base))))))
 
 (defn constantly-nil [] nil)
 
@@ -213,7 +207,7 @@ instance you can get a repeatable basis for tests."
    symbol
    keyword
    uuid
-   #_date])
+   date])
 
 (defn scalar
   "Returns a scalar based on *rnd*."
