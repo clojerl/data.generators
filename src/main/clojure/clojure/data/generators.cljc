@@ -18,7 +18,8 @@
 (defn- call-through
   "Recursively call x until it doesn't return a function."
   [x]
-  (if (or (fn? x) (var? x))
+  (if (or (fn? x)
+          (and (var? x) (-> x meta :fn?)))
     (recur (x))
     x))
 
