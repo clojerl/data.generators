@@ -1,3 +1,5 @@
 target/*
 _build/
 rebar.lock
+ebin/
+.rebar3/
