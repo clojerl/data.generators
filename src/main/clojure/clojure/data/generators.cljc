@@ -279,5 +279,5 @@
          x1# (core/int (/ seed# 1000000000000))
          x2# (core/int (- (/ seed# 1000000) (* x1# 1000000)))
          x3# (core/int (rem seed# 1000000))
-         _# (rand/seed :exs1024s (core/tuple x1# x2# x3#))]
+         _# (rand/seed :exs1024 (core/tuple x1# x2# x3#))]
      ~@body))
